@@ -1,0 +1,131 @@
+// prisma/schema.prisma
+// Wraft — Multi-tenant WhatsApp AI Agent Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Business (one per customer / shop) ──────────────────
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  ownerName   String
+  ownerPhone  String   @unique
+  waPhoneId   String?  @unique  // Meta phone number ID
+  plan        Plan     @default(FREE)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  config      BusinessConfig?
+  leads       Lead[]
+  conversations Conversation[]
+  owner       User?
+}
+
+// ─── Business Config (AI agent brain) ────────────────────
+model BusinessConfig {
+  id            String   @id @default(cuid())
+  businessId    String   @unique
+  business      Business @relation(fields: [businessId], references: [id])
+
+  // Core identity
+  agentName     String   @default("Assistant")
+  language      String   @default("hinglish")  // hindi | english | hinglish
+  tone          String   @default("friendly")   // formal | friendly | casual
+
+  // Business knowledge
+  systemPrompt  String   @db.Text   // auto-generated from onboarding
+  openingHours  String?
+  location      String?
+  services      Json?    // array of service objects
+  faqs          Json?    // array of {q, a} objects
+
+  // Escalation
+  escalatePhone String?  // owner's WA number for handoffs
+  escalateKeywords String[] // words that trigger handoff
+
+  updatedAt     DateTime @updatedAt
+}
+
+// ─── Conversation (one per customer per business) ─────────
+model Conversation {
+  id           String   @id @default(cuid())
+  businessId   String
+  business     Business @relation(fields: [businessId], references: [id])
+  customerPhone String
+  customerName  String?
+  status       ConvStatus @default(ACTIVE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  messages     Message[]
+  lead         Lead?
+}
+
+// ─── Message ──────────────────────────────────────────────
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           Role        // USER | AGENT | SYSTEM
+  content        String   @db.Text
+  waMessageId    String?  @unique
+  createdAt      DateTime @default(now())
+}
+
+// ─── Lead (captured from conversation) ───────────────────
+model Lead {
+  id             String   @id @default(cuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id])
+  conversationId String   @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  customerPhone  String
+  customerName   String?
+  interest       String?  // what they wanted
+  status         LeadStatus @default(NEW)
+  createdAt      DateTime @default(now())
+}
+
+// ─── User (business owner login) ─────────────────────────
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+// ─── Enums ────────────────────────────────────────────────
+enum Plan {
+  FREE
+  BASIC
+  PRO
+}
+
+enum ConvStatus {
+  ACTIVE
+  ESCALATED
+  CLOSED
+}
+
+enum Role {
+  USER
+  AGENT
+  SYSTEM
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  LOST
+}
